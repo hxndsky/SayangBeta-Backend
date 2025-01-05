@@ -25,10 +25,11 @@ db.connect((err) => {
 // Multer Configuration for File Uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../uploads')); // Save files in 'uploads/' folder
+    // Ubah path agar menyimpan file di luar src
+    cb(null, path.join(__dirname, '../../uploads')); // Atau sesuaikan dengan struktur folder Anda
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname)); // Unique filename
+    cb(null, Date.now() + path.extname(file.originalname)); // Nama file dengan timestamp
   }
 });
 
