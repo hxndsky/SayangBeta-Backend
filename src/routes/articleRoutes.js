@@ -16,7 +16,7 @@ const db = mysql.createConnection({
 
 db.connect((err) => {
   if (err) {
-    console.error("Database connection failed:", err);
+    console.error("Database connection failed:", err.message);
   } else {
     console.log("Connected to database");
   }
@@ -25,11 +25,10 @@ db.connect((err) => {
 // Multer Configuration for File Uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Ubah path agar menyimpan file di luar src
-    cb(null, path.join(__dirname, '../../uploads')); // Atau sesuaikan dengan struktur folder Anda
+    cb(null, path.join(__dirname, '../../uploads'));
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname)); // Nama file dengan timestamp
+    cb(null, `${Date.now()}-${file.originalname}`);
   }
 });
 
@@ -49,10 +48,14 @@ const upload = multer({
 // Middleware to Verify JWT Token
 const verifyToken = (req, res, next) => {
   const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(403).json({ message: 'No token provided' });
+  if (!token) {
+    return res.status(403).json({ message: 'No token provided' });
+  }
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ message: 'Invalid or expired token' });
+    if (err) {
+      return res.status(403).json({ message: 'Silahkan login terlebih dahulu' });
+    }
     req.user = decoded;
     next();
   });
@@ -71,16 +74,16 @@ router.post('/submit', verifyToken, upload.single('image'), (req, res) => {
     return res.status(400).json({ message: 'Image file is required' });
   }
 
-  const image_url = req.file.path;
+  const image_url = `/uploads/${req.file.filename}`;
   const slug = slugify(title, { lower: true, strict: true });
 
   db.query(
     'INSERT INTO articles (user_id, title, slug, description, image_url) VALUES (?, ?, ?, ?, ?)',
     [userId, title, slug, description, image_url],
-    (err, result) => {
+    (err) => {
       if (err) {
-        console.error("Database error:", err);
-        return res.status(500).json({ error: err.message });
+        console.error("Database error:", err.message);
+        return res.status(500).json({ error: 'Failed to save article' });
       }
       res.status(201).json({ message: 'Article submitted successfully' });
     }
@@ -89,16 +92,22 @@ router.post('/submit', verifyToken, upload.single('image'), (req, res) => {
 
 // Endpoint: Get Pending Articles
 router.get('/pending', verifyToken, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
 
   db.query(
     'SELECT id, title, slug, description, image_url, status FROM articles WHERE status = "pending"',
     (err, results) => {
       if (err) {
-        console.error("Database error:", err);
+        console.error("Database error:", err.message);
         return res.status(500).json({ message: 'Failed to fetch pending articles' });
       }
-      res.json(results);
+      const articles = results.map(article => ({
+        ...article,
+        image_url: `${process.env.BASE_URL}/uploads/${path.basename(article.image_url)}`,
+      }));
+      res.json(articles);
     }
   );
 });
@@ -108,7 +117,10 @@ router.post('/review/:articleId', verifyToken, (req, res) => {
   const { articleId } = req.params;
   const { status } = req.body;
 
-  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+
   if (!['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ message: 'Invalid status' });
   }
@@ -116,12 +128,12 @@ router.post('/review/:articleId', verifyToken, (req, res) => {
   db.query(
     'UPDATE articles SET status = ? WHERE id = ?',
     [status, articleId],
-    (err, result) => {
+    (err) => {
       if (err) {
-        console.error("Database error:", err);
+        console.error("Database error:", err.message);
         return res.status(500).json({ message: 'Failed to update article status' });
       }
-      res.json({ message: `Article has been ${status} successfully` });
+      res.json({ message: `Article status updated to ${status}` });
     }
   );
 });
@@ -132,7 +144,7 @@ router.get('/approved', (req, res) => {
     'SELECT id, title, slug, description, image_url, created_at FROM articles WHERE status = "approved"',
     (err, results) => {
       if (err) {
-        console.error("Database error:", err);
+        console.error("Database error:", err.message);
         return res.status(500).json({ message: 'Failed to fetch approved articles' });
       }
 
@@ -147,28 +159,23 @@ router.get('/approved', (req, res) => {
   );
 });
 
-// Respons API untuk artikel berdasarkan slug
+// Endpoint: Get Article by Slug
 router.get('/slug/:slug', (req, res) => {
   const { slug } = req.params;
+
   db.query(
     'SELECT id, title, description, image_url, created_at FROM articles WHERE slug = ? AND status = "approved"',
     [slug],
     (err, results) => {
       if (err) {
-        console.error("Database error:", err); // Log actual error from MySQL
-        return res.status(500).json({ message: 'Failed to fetch article', error: err.message });
+        console.error("Database error:", err.message);
+        return res.status(500).json({ message: 'Failed to fetch article' });
       }
 
-      // If no article found
       if (results.length === 0) {
-        console.log("No article found for slug:", slug);
         return res.status(404).json({ message: 'Artikel tidak ditemukan' });
       }
 
-      // Log article data before sending the response
-      console.log("Article data:", results[0]);
-
-      // Return article data, including the image URL path
       const article = results[0];
       res.json({
         id: article.id,
