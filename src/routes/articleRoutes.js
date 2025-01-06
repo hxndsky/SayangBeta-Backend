@@ -120,7 +120,7 @@ router.post('/review/:articleId', verifyToken, (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ message: 'Access denied' });
   }
-
+  
   if (!['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ message: 'Invalid status' });
   }
@@ -146,6 +146,27 @@ router.get('/approved', (req, res) => {
       if (err) {
         console.error("Database error:", err.message);
         return res.status(500).json({ message: 'Failed to fetch approved articles' });
+      }
+
+      const articles = results.map(article => ({
+        ...article,
+        image_url: `${process.env.BASE_URL}/uploads/${path.basename(article.image_url)}`,
+        date_uploaded: new Date(article.created_at).toISOString().split('T')[0]
+      }));
+
+      res.json(articles);
+    }
+  );
+});
+
+// Endpoint: Get Rejected Articles
+router.get('/rejected', (req, res) => {
+  db.query(
+    'SELECT id, title, slug, description, image_url, created_at FROM articles WHERE status = "rejected"',
+    (err, results) => {
+      if (err) {
+        console.error("Database error:", err);
+        return res.status(500).json({ message: 'Failed to fetch rejected articles' });
       }
 
       const articles = results.map(article => ({
